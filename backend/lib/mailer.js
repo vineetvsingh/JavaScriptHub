@@ -1,11 +1,26 @@
-import { Resend } from 'resend'
+import nodemailer from 'nodemailer'
 
-function getClient() {
-  if (!process.env.RESEND_API_KEY) throw new Error('SMTP not configured')
-  return new Resend(process.env.RESEND_API_KEY)
+let transporter = null
+
+function getTransporter() {
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_SECURE === 'true',
+      family: 4,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    })
+  }
+  return transporter
 }
 
-const FROM = 'JS.hub <onboarding@resend.dev>'
+function checkSmtp() {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER) throw new Error('SMTP not configured')
+}
 
 const baseCard = (title, subtitle, otp, note) => `
   <div style="font-family:monospace;max-width:480px;margin:0 auto;padding:32px 24px;background:#13131F;color:#E8E8F0;border-radius:12px;border:1px solid rgba(255,255,255,0.07)">
@@ -18,8 +33,9 @@ const baseCard = (title, subtitle, otp, note) => `
 `
 
 export function sendVerificationEmail(to, otp) {
-  return getClient().emails.send({
-    from: FROM,
+  checkSmtp()
+  return getTransporter().sendMail({
+    from: process.env.EMAIL_FROM || `JS.hub <${process.env.SMTP_USER}>`,
     to,
     subject: 'Verify your JS.hub account',
     text: `Your verification code is: ${otp}\n\nExpires in 10 minutes.`,
@@ -33,8 +49,9 @@ export function sendVerificationEmail(to, otp) {
 }
 
 export function sendOtpEmail(to, otp) {
-  return getClient().emails.send({
-    from: FROM,
+  checkSmtp()
+  return getTransporter().sendMail({
+    from: process.env.EMAIL_FROM || `JS.hub <${process.env.SMTP_USER}>`,
     to,
     subject: 'Your JS.hub password reset code',
     text: `Your reset code is: ${otp}\n\nExpires in 10 minutes.`,

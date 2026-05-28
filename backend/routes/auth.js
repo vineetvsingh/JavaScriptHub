@@ -40,6 +40,12 @@ router.post('/register', async (req, res, next) => {
     if (usernameTaken) return res.status(409).json({ error: 'Username already taken' })
 
     const passwordHash = await bcrypt.hash(password, 12)
+
+    if (process.env.SKIP_EMAIL_VERIFICATION === 'true') {
+      const user = await User.create({ email, username, passwordHash, isVerified: true })
+      return res.status(201).json({ token: signToken(user), email: user.email, username: user.username })
+    }
+
     const otp = generateOtp()
     const user = await User.create({ email, username, passwordHash, isVerified: false, verifyOtp: otp, verifyOtpExpiresAt: new Date(Date.now() + 10 * 60 * 1000) })
     await sendVerificationEmail(user.email, otp)
@@ -111,7 +117,11 @@ router.post('/login', async (req, res, next) => {
     if (!ok) return res.status(401).json({ error: 'Invalid email or password' })
 
     if (!user.isVerified) {
-      return res.status(403).json({ error: 'Please verify your email before logging in.', pendingVerification: true, email: user.email })
+      if (process.env.SKIP_EMAIL_VERIFICATION === 'true') {
+        await User.updateOne({ _id: user._id }, { isVerified: true })
+      } else {
+        return res.status(403).json({ error: 'Please verify your email before logging in.', pendingVerification: true, email: user.email })
+      }
     }
 
     res.json({ token: signToken(user), email: user.email, username: user.username })

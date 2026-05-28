@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { api } from '../lib/api'
 import styles from './Auth.module.css'
 
@@ -11,6 +12,7 @@ export default function Register() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { saveAuth } = useAuth()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -19,7 +21,12 @@ export default function Register() {
     try {
       const data = await api.register(email, password, username)
       if (data.error) { setError(data.error); return }
-      navigate('/verify-email', { state: { email: data.email }, replace: true })
+      if (data.token) {
+        saveAuth(data.token, data.email, data.username)
+        navigate('/', { replace: true })
+      } else {
+        navigate('/verify-email', { state: { email: data.email }, replace: true })
+      }
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {
