@@ -15,9 +15,6 @@ function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
-// Separate stores for verification and password-reset OTPs
-const verifyStore = new Map() // email → { otp, expiresAt }
-const resetStore  = new Map() // email → { otp, expiresAt }
 
 // ── Register ────────────────────────────────────────────────
 router.post('/register', async (req, res, next) => {
@@ -34,7 +31,7 @@ router.post('/register', async (req, res, next) => {
     if (existing) {
       if (existing.isVerified) return res.status(409).json({ error: 'Email already registered' })
       const otp = generateOtp()
-      verifyStore.set(key, { otp, expiresAt: Date.now() + 10 * 60 * 1000 })
+      await User.updateOne({ email: key }, { verifyOtp: otp, verifyOtpExpiresAt: new Date(Date.now() + 10 * 60 * 1000) })
       await sendVerificationEmail(existing.email, otp)
       return res.json({ pendingVerification: true, email: existing.email })
     }
@@ -43,10 +40,8 @@ router.post('/register', async (req, res, next) => {
     if (usernameTaken) return res.status(409).json({ error: 'Username already taken' })
 
     const passwordHash = await bcrypt.hash(password, 12)
-    const user = await User.create({ email, username, passwordHash, isVerified: false })
-
     const otp = generateOtp()
-    verifyStore.set(key, { otp, expiresAt: Date.now() + 10 * 60 * 1000 })
+    const user = await User.create({ email, username, passwordHash, isVerified: false, verifyOtp: otp, verifyOtpExpiresAt: new Date(Date.now() + 10 * 60 * 1000) })
     await sendVerificationEmail(user.email, otp)
 
     res.status(201).json({ pendingVerification: true, email: user.email })
@@ -65,19 +60,16 @@ router.post('/verify-email', async (req, res, next) => {
     if (!email || !otp) return res.status(400).json({ error: 'Email and code required' })
 
     const key = email.toLowerCase().trim()
-    const stored = verifyStore.get(key)
-    if (!stored) return res.status(400).json({ error: 'No verification code found — request a new one' })
-    if (Date.now() > stored.expiresAt) {
-      verifyStore.delete(key)
+    const user = await User.findOne({ email: key })
+    if (!user || !user.verifyOtp) return res.status(400).json({ error: 'No verification code found — request a new one' })
+    if (new Date() > user.verifyOtpExpiresAt) {
+      await User.updateOne({ email: key }, { $unset: { verifyOtp: 1, verifyOtpExpiresAt: 1 } })
       return res.status(400).json({ error: 'Verification code expired — request a new one' })
     }
-    if (stored.otp !== otp) return res.status(400).json({ error: 'Invalid verification code' })
+    if (user.verifyOtp !== otp) return res.status(400).json({ error: 'Invalid verification code' })
 
-    const user = await User.findOneAndUpdate({ email: key }, { isVerified: true }, { new: true })
-    if (!user) return res.status(404).json({ error: 'User not found' })
-
-    verifyStore.delete(key)
-    res.json({ token: signToken(user), email: user.email, username: user.username })
+    const updated = await User.findOneAndUpdate({ email: key }, { isVerified: true, $unset: { verifyOtp: 1, verifyOtpExpiresAt: 1 } }, { new: true })
+    res.json({ token: signToken(updated), email: updated.email, username: updated.username })
   } catch (err) {
     next(err)
   }
@@ -95,7 +87,7 @@ router.post('/resend-verification', async (req, res, next) => {
     if (user.isVerified) return res.status(400).json({ error: 'Account already verified' })
 
     const otp = generateOtp()
-    verifyStore.set(key, { otp, expiresAt: Date.now() + 10 * 60 * 1000 })
+    await User.updateOne({ email: key }, { verifyOtp: otp, verifyOtpExpiresAt: new Date(Date.now() + 10 * 60 * 1000) })
     await sendVerificationEmail(user.email, otp)
     res.json({ ok: true })
   } catch (err) {
@@ -138,7 +130,7 @@ router.post('/forgot-password', async (req, res, next) => {
     if (!user) return res.json({ ok: true })
 
     const otp = generateOtp()
-    resetStore.set(email.toLowerCase().trim(), { otp, expiresAt: Date.now() + 10 * 60 * 1000 })
+    await User.updateOne({ email: user.email }, { resetOtp: otp, resetOtpExpiresAt: new Date(Date.now() + 10 * 60 * 1000) })
     await sendOtpEmail(user.email, otp)
     res.json({ ok: true })
   } catch (err) {
@@ -157,20 +149,18 @@ router.post('/reset-password', async (req, res, next) => {
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' })
 
     const key = email.toLowerCase().trim()
-    const stored = resetStore.get(key)
-    if (!stored) return res.status(400).json({ error: 'No reset code found — request a new one' })
-    if (Date.now() > stored.expiresAt) {
-      resetStore.delete(key)
+    const user = await User.findOne({ email: key })
+    if (!user || !user.resetOtp) return res.status(400).json({ error: 'No reset code found — request a new one' })
+    if (new Date() > user.resetOtpExpiresAt) {
+      await User.updateOne({ email: key }, { $unset: { resetOtp: 1, resetOtpExpiresAt: 1 } })
       return res.status(400).json({ error: 'Reset code expired — request a new one' })
     }
-    if (stored.otp !== otp) return res.status(400).json({ error: 'Invalid reset code' })
-
-    const user = await User.findOne({ email: key })
-    if (!user) return res.status(404).json({ error: 'User not found' })
+    if (user.resetOtp !== otp) return res.status(400).json({ error: 'Invalid reset code' })
 
     user.passwordHash = await bcrypt.hash(password, 12)
+    user.resetOtp = undefined
+    user.resetOtpExpiresAt = undefined
     await user.save()
-    resetStore.delete(key)
     res.json({ ok: true })
   } catch (err) {
     next(err)
