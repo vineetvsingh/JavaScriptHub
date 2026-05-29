@@ -22,18 +22,14 @@ export default function Login() {
     setLoading(true)
     try {
       const data = await api.login(email, password)
-      if (data.error) {
-        if (data.pendingVerification) {
-          navigate('/verify-email', { state: { email: data.email }, replace: true })
-          return
-        }
-        setError(data.error)
-        return
-      }
       saveAuth(data.token, data.email, data.username)
       navigate(from, { replace: true })
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err) {
+      if (err.pendingVerification) {
+        navigate('/verify-email', { state: { email: err.email }, replace: true })
+        return
+      }
+      setError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }

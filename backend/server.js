@@ -15,6 +15,10 @@ dotenv.config()
 const app = express()
 const PORT = process.env.PORT || 3001
 
+// Render (and most PaaS) put us behind a reverse proxy. Trust the first hop
+// so express-rate-limit keys on the real client IP via X-Forwarded-For.
+app.set('trust proxy', 1)
+
 app.use(helmet())
 app.use(cors({ origin: process.env.FRONTEND_URL || '*' }))
 app.use(express.json())
@@ -36,7 +40,7 @@ app.use((err, req, res, next) => {
 
 connectDB()
   .then(() => {
-    app.listen(PORT, () => console.log(`JS.hub API running on port 3001`))
+    app.listen(PORT, () => console.log(`JS.hub API running on port ${PORT}`))
   })
   .catch(err => {
     console.error('Failed to start:', err.message)

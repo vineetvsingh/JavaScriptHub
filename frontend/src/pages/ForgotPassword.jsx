@@ -14,11 +14,10 @@ export default function ForgotPassword() {
     setError('')
     setLoading(true)
     try {
-      const data = await api.forgotPassword(email)
-      if (data.error) { setError(data.error); return }
+      await api.forgotPassword(email)
       navigate('/reset-password', { state: { email } })
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err) {
+      setError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }

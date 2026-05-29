@@ -20,15 +20,14 @@ export default function Register() {
     setLoading(true)
     try {
       const data = await api.register(email, password, username)
-      if (data.error) { setError(data.error); return }
       if (data.token) {
         saveAuth(data.token, data.email, data.username)
         navigate('/', { replace: true })
       } else {
         navigate('/verify-email', { state: { email: data.email }, replace: true })
       }
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err) {
+      setError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }

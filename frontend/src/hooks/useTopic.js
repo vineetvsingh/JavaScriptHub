@@ -10,6 +10,7 @@ export function useTopic(slug) {
     if (!slug) return
     setLoading(true)
     setTopic(null)
+    setError(null)
     api.getTopic(slug)
       .then(data => setTopic(data))
       .catch(err => setError(err.message))

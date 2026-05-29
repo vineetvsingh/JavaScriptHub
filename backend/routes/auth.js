@@ -1,6 +1,8 @@
 import { Router } from 'express'
+import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import rateLimit from 'express-rate-limit'
 import { User } from '../models/User.js'
 import { sendVerificationEmail, sendOtpEmail } from '../lib/mailer.js'
 
@@ -12,12 +14,33 @@ const signToken = (user) =>
   jwt.sign({ sub: user._id.toString(), email: user.email, username: user.username }, process.env.JWT_SECRET, { expiresIn: '30d' })
 
 function generateOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000))
+  return String(crypto.randomInt(100000, 1000000))
+}
+
+const rateLimitOpts = {
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Try again later.' },
+}
+
+// Login and OTP-checking endpoints are the brute-force targets — keep tight.
+const tightLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, ...rateLimitOpts })
+// Register / email-sending — looser so legitimate flows aren't blocked, but capped.
+const looseLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, ...rateLimitOpts })
+
+function handleDupKey(err, res) {
+  if (err?.code === 11000) {
+    const field = Object.keys(err.keyPattern || {})[0]
+    return res.status(409).json({
+      error: field === 'username' ? 'Username already taken' : 'Email already registered',
+    })
+  }
+  return null
 }
 
 
 // ── Register ────────────────────────────────────────────────
-router.post('/register', async (req, res, next) => {
+router.post('/register', looseLimiter, async (req, res, next) => {
   try {
     const { email, password, username } = req.body
     if (!email || !password || !username) return res.status(400).json({ error: 'Email, username and password required' })
@@ -52,6 +75,7 @@ router.post('/register', async (req, res, next) => {
 
     res.status(201).json({ pendingVerification: true, email: user.email })
   } catch (err) {
+    if (handleDupKey(err, res)) return
     if (err.message === 'SMTP not configured') {
       return res.status(503).json({ error: 'Email service not configured. Add SMTP credentials to .env' })
     }
@@ -60,7 +84,7 @@ router.post('/register', async (req, res, next) => {
 })
 
 // ── Verify email ─────────────────────────────────────────────
-router.post('/verify-email', async (req, res, next) => {
+router.post('/verify-email', tightLimiter, async (req, res, next) => {
   try {
     const { email, otp } = req.body
     if (!email || !otp) return res.status(400).json({ error: 'Email and code required' })
@@ -82,7 +106,7 @@ router.post('/verify-email', async (req, res, next) => {
 })
 
 // ── Resend verification ───────────────────────────────────────
-router.post('/resend-verification', async (req, res, next) => {
+router.post('/resend-verification', looseLimiter, async (req, res, next) => {
   try {
     const { email } = req.body
     if (!email) return res.status(400).json({ error: 'Email required' })
@@ -105,7 +129,7 @@ router.post('/resend-verification', async (req, res, next) => {
 })
 
 // ── Login ─────────────────────────────────────────────────────
-router.post('/login', async (req, res, next) => {
+router.post('/login', tightLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' })
@@ -131,7 +155,7 @@ router.post('/login', async (req, res, next) => {
 })
 
 // ── Forgot password ───────────────────────────────────────────
-router.post('/forgot-password', async (req, res, next) => {
+router.post('/forgot-password', looseLimiter, async (req, res, next) => {
   try {
     const { email } = req.body
     if (!email) return res.status(400).json({ error: 'Email required' })
@@ -152,7 +176,7 @@ router.post('/forgot-password', async (req, res, next) => {
 })
 
 // ── Reset password ────────────────────────────────────────────
-router.post('/reset-password', async (req, res, next) => {
+router.post('/reset-password', tightLimiter, async (req, res, next) => {
   try {
     const { email, otp, password } = req.body
     if (!email || !otp || !password) return res.status(400).json({ error: 'Email, code and new password required' })

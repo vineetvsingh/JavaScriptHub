@@ -24,11 +24,10 @@ export default function VerifyEmail() {
     setLoading(true)
     try {
       const data = await api.verifyEmail(email, otp)
-      if (data.error) { setError(data.error); return }
       saveAuth(data.token, data.email, data.username)
       navigate('/', { replace: true })
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err) {
+      setError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -39,11 +38,10 @@ export default function VerifyEmail() {
     setResent(false)
     setError('')
     try {
-      const data = await api.resendVerification(email)
-      if (data.error) { setError(data.error); return }
+      await api.resendVerification(email)
       setResent(true)
-    } catch {
-      setError('Could not resend. Please try again.')
+    } catch (err) {
+      setError(err.message || 'Could not resend. Please try again.')
     } finally {
       setResending(false)
     }

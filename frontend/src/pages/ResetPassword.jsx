@@ -21,11 +21,10 @@ export default function ResetPassword() {
     setError('')
     setLoading(true)
     try {
-      const data = await api.resetPassword(email, otp, password)
-      if (data.error) { setError(data.error); return }
+      await api.resetPassword(email, otp, password)
       navigate('/login', { state: { message: 'Password reset successfully. Please log in.' } })
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (err) {
+      setError(err.message || 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
